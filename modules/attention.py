@@ -30,26 +30,6 @@ class CausalSelfAttention(nn.Module):
     proj = rearrange(proj, 'b t h d -> b h t d')
     return proj
 
-  # def attention(self, key, query, value, attention_mask):
-    
-  #   # Scaled dot product
-  #   dk = query.size(-1)
-  #   scores = torch.matmul(query, key.transpose(-2, -1)) / torch.sqrt(torch.tensor(dk, dtype=torch.float32, device=query.device))
-    
-  #   # Apply causal mask
-  #   scores = scores.masked_fill(attention_mask == 0, float('-inf'))
-
-  #   # Softmax
-  #   attn_weights = torch.softmax(scores, dim=-1)
-  #   attn_weights = self.dropout(attn_weights)
-
-  #   # Weighted sum
-  #   context = torch.matmul(attn_weights, value)
-
-  #   # Reshape back
-  #   context = rearrange(context, 'b h t d -> b t (h d)')
-  #   return context
-
   def attention(self, key, query, value, attention_mask):
     # Scaled dot-product
     dk = query.size(-1)
