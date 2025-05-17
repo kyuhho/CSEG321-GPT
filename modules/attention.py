@@ -3,7 +3,6 @@ import torch
 from einops import rearrange
 from torch import nn
 
-
 class CausalSelfAttention(nn.Module):
   def __init__(self, config):
     super().__init__()
@@ -32,18 +31,29 @@ class CausalSelfAttention(nn.Module):
     return proj
 
   def attention(self, key, query, value, attention_mask):
-    ### YOUR CODE HERE
-    scores = torch.matmul(query, key.transpose(-1, -2))  # [bs, heads, seq_len, seq_len]
-    scores = scores / (self.attention_head_size ** 0.5)
+    # Scaled dot-product
+    dk = query.size(-1)
+    scores = torch.matmul(query, key.transpose(-2, -1)) / torch.sqrt(torch.tensor(dk, dtype=torch.float32, device=query.device))
 
-    # Apply mask: attention_mask is [bs, 1, 1, seq_len]
-    scores = scores.masked_fill(attention_mask == 0, float('-inf'))
+    # Causal mask
+    seq_len = query.size(-2)
+    causal_mask = torch.triu(
+        torch.ones(seq_len, seq_len, device=query.device, dtype=torch.bool),
+        diagonal=1
+    )
+    scores = scores.masked_fill(causal_mask, float('-inf'))
 
-    attn_probs = torch.softmax(scores, dim=-1)
-    attn_probs = self.dropout(attn_probs)
+    # Pad mask
+    scores = scores + attention_mask
 
-    context = torch.matmul(attn_probs, value)  # [bs, heads, seq_len, head_dim]
-    context = rearrange(context, 'b h t d -> b t (h d)')  # [bs, seq_len, hidden_dim]
+    # Softmax + Dropout
+    attn_weights = torch.softmax(scores, dim=-1)
+    attn_weights = self.dropout(attn_weights)
+
+    # Value Weighted Sum
+    context = torch.matmul(attn_weights, value)
+    context = rearrange(context, 'b h t d -> b t (h d)')
+
     return context
 
 
