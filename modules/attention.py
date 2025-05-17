@@ -3,7 +3,6 @@ import torch
 from einops import rearrange
 from torch import nn
 
-
 class CausalSelfAttention(nn.Module):
   def __init__(self, config):
     super().__init__()
@@ -31,10 +30,51 @@ class CausalSelfAttention(nn.Module):
     proj = rearrange(proj, 'b t h d -> b h t d')
     return proj
 
-  def attention(self, key, query, value, attention_mask):
+  # def attention(self, key, query, value, attention_mask):
+    
+  #   # Scaled dot product
+  #   dk = query.size(-1)
+  #   scores = torch.matmul(query, key.transpose(-2, -1)) / torch.sqrt(torch.tensor(dk, dtype=torch.float32, device=query.device))
+    
+  #   # Apply causal mask
+  #   scores = scores.masked_fill(attention_mask == 0, float('-inf'))
 
-    ### YOUR CODE HERE
-    raise NotImplementedError
+  #   # Softmax
+  #   attn_weights = torch.softmax(scores, dim=-1)
+  #   attn_weights = self.dropout(attn_weights)
+
+  #   # Weighted sum
+  #   context = torch.matmul(attn_weights, value)
+
+  #   # Reshape back
+  #   context = rearrange(context, 'b h t d -> b t (h d)')
+  #   return context
+
+  def attention(self, key, query, value, attention_mask):
+    # Scaled dot-product
+    dk = query.size(-1)
+    scores = torch.matmul(query, key.transpose(-2, -1)) / torch.sqrt(torch.tensor(dk, dtype=torch.float32, device=query.device))
+
+    # Causal mask
+    seq_len = query.size(-2)
+    causal_mask = torch.triu(
+        torch.ones(seq_len, seq_len, device=query.device, dtype=torch.bool),
+        diagonal=1
+    )
+    scores = scores.masked_fill(causal_mask, float('-inf'))
+
+    # Pad mask
+    scores = scores + attention_mask
+
+    # Softmax + Dropout
+    attn_weights = torch.softmax(scores, dim=-1)
+    attn_weights = self.dropout(attn_weights)
+
+    # Value Weighted Sum
+    context = torch.matmul(attn_weights, value)
+    context = rearrange(context, 'b h t d -> b t (h d)')
+
+    return context
 
 
   def forward(self, hidden_states, attention_mask):
