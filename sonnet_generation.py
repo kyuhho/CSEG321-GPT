@@ -62,8 +62,9 @@ class SonnetGPT(nn.Module):
     """
     ### YOUR CODE HERE
     #raise NotImplementedError
-    hidden_states = self.gpt(input_ids, attention_mask=attention_mask)
-    logits = F.linear(hidden_states, self.gpt.wte.weight)  # [B, T, V]
+    outputs = self.gpt(input_ids, attention_mask)
+    hidden_states = outputs["last_hidden_state"]  # (B, L, D)
+    logits = self.gpt.hidden_state_to_token(hidden_states)  # (B, L, V)
     return logits
 
   def get_device(self):
