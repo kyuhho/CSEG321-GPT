@@ -72,8 +72,19 @@ class ParaphraseGPT(nn.Module):
 
     'Takes a batch of sentences and produces embeddings for them.'
     ### YOUR CODE HERE
-    raise NotImplementedError
+    #raise NotImplementedError
+    outputs = self.gpt(input_ids, attention_mask)
+    hidden_states = outputs["last_hidden_state"]  # [B, L, D]
 
+    # 마지막 non-pad 토큰 위치 구하기
+    last_token_index = attention_mask.sum(dim=1) - 1  # [B]
+    last_hidden = hidden_states[torch.arange(hidden_states.size(0)), last_token_index]  # [B, D]
+
+    # [B, V] 전체 vocab logit 계산
+    logits = self.gpt.hidden_state_to_token(last_hidden)  # [B, vocab_size]
+
+    return logits
+  
 
 
 def save_model(model, optimizer, args, filepath):
