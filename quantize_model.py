@@ -10,10 +10,13 @@ torch.backends.quantized.engine = 'qnnpack'  # ✅ 필수 설정
 from models.gpt2 import GPT2Model
 from config import GPT2Config
 
+# quantize_model.py 수정
 def load_student_model(checkpoint_path: str) -> GPT2Model:
-    config = GPT2Config()
-    model = GPT2Model(config)
-    model.load_state_dict(torch.load(checkpoint_path, map_location='cpu'))
+    ckpt = torch.load(checkpoint_path, map_location='cpu')
+    config_dict = ckpt["config"]
+    config = GPT2Config(**config_dict)        # 동적 config 로드
+    model = GPT2Model(config)                 # 구조를 맞춰 초기화
+    model.load_state_dict(ckpt["state_dict"]) # 정상 로딩
     model.eval()
     return model
 
