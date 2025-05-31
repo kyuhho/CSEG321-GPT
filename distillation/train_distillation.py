@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
-from transformers import GPT2Tokenizer, GPT2Model as TeacherGPT2Model
+from transformers import GPT2Tokenizer, GPT2LMHeadModel as TeacherGPT2Model
 from models.gpt2 import GPT2Model as StudentGPT2Model
 from config import GPT2Config
 from tqdm import tqdm
@@ -75,7 +75,7 @@ def load_models_and_tokenizer():
     tokenizer = GPT2Tokenizer.from_pretrained("gavin124/gpt2-finetuned-cnn-summarization-v2")
     tokenizer.pad_token = tokenizer.eos_token
 
-    return teacher_model, student_model, tokenizer, device
+    return teacher_model, student_model, tokenizer, device, student_config
 
 def distillation_loss(student_logits, teacher_logits, temperature):
     """
@@ -87,13 +87,20 @@ def distillation_loss(student_logits, teacher_logits, temperature):
 
 def train(args):
     # 모델과 토크나이저 로드
-    teacher_model, student_model, tokenizer, device = load_models_and_tokenizer()
-    
+    teacher_model, student_model, tokenizer, device, student_config = load_models_and_tokenizer()
+
     # 데이터셋 로드
     dataset = load_dataset("abisee/cnn_dailymail", "3.0.0")
+
+    # 빠른 테스트를 위한 데이터 샘플링
+    if getattr(args, "debug", False):
+        print("[DEBUG MODE] Using small dataset subset (train=1000, val=200)")
+        dataset["train"] = dataset["train"].select(range(1000))
+        dataset["validation"] = dataset["validation"].select(range(200))
+
     train_dataset = CNNDailyMailDataset(dataset['train'], tokenizer, args.max_length)
     val_dataset = CNNDailyMailDataset(dataset['validation'], tokenizer, args.max_length)
-    
+
     train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
     val_dataloader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False)
 
@@ -103,30 +110,23 @@ def train(args):
     # Training loop
     best_val_loss = float('inf')
     for epoch in range(args.epochs):
-        # Training
         student_model.train()
         total_loss = 0
-        
+
         for batch in tqdm(train_dataloader, desc=f"Training Epoch {epoch + 1}/{args.epochs}"):
-            # Move batch to device
             input_ids = batch['input_ids'].to(device)
             attention_mask = batch['attention_mask'].to(device)
 
-            # Teacher forward pass
             with torch.no_grad():
                 teacher_outputs = teacher_model(input_ids=input_ids, attention_mask=attention_mask)
-                teacher_hidden_states = teacher_outputs.last_hidden_state
-                teacher_logits = teacher_model.wte(teacher_hidden_states)
+                teacher_logits = teacher_outputs.logits
 
-            # Student forward pass
             student_outputs = student_model(input_ids=input_ids, attention_mask=attention_mask)
             student_hidden_states = student_outputs['last_hidden_state']
             student_logits = student_model.hidden_state_to_token(student_hidden_states)
 
-            # Compute losses
             distill_loss = distillation_loss(student_logits, teacher_logits, args.temperature)
-            
-            # Backward pass
+
             optimizer.zero_grad()
             distill_loss.backward()
             optimizer.step()
@@ -136,7 +136,6 @@ def train(args):
         avg_train_loss = total_loss / len(train_dataloader)
         print(f"Epoch {epoch + 1}/{args.epochs}, Average Training Loss: {avg_train_loss:.4f}")
 
-        # Validation
         student_model.eval()
         val_loss = 0
         with torch.no_grad():
@@ -145,8 +144,7 @@ def train(args):
                 attention_mask = batch['attention_mask'].to(device)
 
                 teacher_outputs = teacher_model(input_ids=input_ids, attention_mask=attention_mask)
-                teacher_hidden_states = teacher_outputs.last_hidden_state
-                teacher_logits = teacher_model.wte(teacher_hidden_states)
+                teacher_logits = teacher_outputs.logits
 
                 student_outputs = student_model(input_ids=input_ids, attention_mask=attention_mask)
                 student_hidden_states = student_outputs['last_hidden_state']
@@ -158,7 +156,6 @@ def train(args):
         avg_val_loss = val_loss / len(val_dataloader)
         print(f"Epoch {epoch + 1}/{args.epochs}, Average Validation Loss: {avg_val_loss:.4f}")
 
-        # Save best model
         if avg_val_loss < best_val_loss:
             best_val_loss = avg_val_loss
             torch.save({
@@ -167,7 +164,8 @@ def train(args):
                 'optimizer_state_dict': optimizer.state_dict(),
                 'epoch': epoch,
                 'val_loss': best_val_loss
-            }, f"{args.save_dir}/best_distilled_gpt2.pt")
+            }, f"{args.save_dir}/student.pt")
+
 
 def get_args():
     parser = argparse.ArgumentParser()
@@ -176,8 +174,9 @@ def get_args():
     parser.add_argument('--lr', type=float, default=5e-5)
     parser.add_argument('--temperature', type=float, default=2.0)
     parser.add_argument('--max_length', type=int, default=512)
-    parser.add_argument('--save_dir', type=str, default='distilled_model')
+    parser.add_argument('--save_dir', type=str, default='models')
     parser.add_argument('--seed', type=int, default=11711)
+    parser.add_argument('--debug', action='store_true', help="Use a small subset of data for quick testing")
     return parser.parse_args()
 
 def main():
