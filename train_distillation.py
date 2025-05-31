@@ -9,8 +9,7 @@ from tqdm import tqdm
 import argparse
 import random
 import numpy as np
-import json
-import os
+from datasets import load_dataset
 
 TQDM_DISABLE = False
 
@@ -24,31 +23,16 @@ def seed_everything(seed=11711):
     torch.backends.cudnn.deterministic = True
 
 class CNNDailyMailDataset(Dataset):
-    def __init__(self, data_dir, tokenizer, max_length=512, split='train'):
+    def __init__(self, dataset, tokenizer, max_length=512):
+        self.dataset = dataset
         self.tokenizer = tokenizer
         self.max_length = max_length
-        self.examples = []
-        
-        # Load data from files
-        if split == 'train':
-            data_files = [os.path.join(data_dir, f) for f in os.listdir(data_dir) if f.startswith('train')]
-        else:
-            data_files = [os.path.join(data_dir, f) for f in os.listdir(data_dir) if f.startswith('validation')]
-            
-        for file_path in data_files:
-            with open(file_path, 'r', encoding='utf-8') as f:
-                for line in f:
-                    example = json.loads(line)
-                    self.examples.append({
-                        'article': example['article'],
-                        'highlights': example['highlights']
-                    })
     
     def __len__(self):
-        return len(self.examples)
+        return len(self.dataset)
     
     def __getitem__(self, idx):
-        example = self.examples[idx]
+        example = self.dataset[idx]
         
         # Combine article and highlights with special tokens
         text = f"Article: {example['article']}\nSummary: {example['highlights']}"
@@ -106,8 +90,9 @@ def train(args):
     teacher_model, student_model, tokenizer, device = load_models_and_tokenizer()
     
     # 데이터셋 로드
-    train_dataset = CNNDailyMailDataset(args.data_dir, tokenizer, args.max_length, split='train')
-    val_dataset = CNNDailyMailDataset(args.data_dir, tokenizer, args.max_length, split='validation')
+    dataset = load_dataset("abisee/cnn_dailymail", "3.0.0")
+    train_dataset = CNNDailyMailDataset(dataset['train'], tokenizer, args.max_length)
+    val_dataset = CNNDailyMailDataset(dataset['validation'], tokenizer, args.max_length)
     
     train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
     val_dataloader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False)
@@ -186,7 +171,6 @@ def train(args):
 
 def get_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--data_dir', type=str, required=True, help='Path to CNN/DailyMail dataset')
     parser.add_argument('--batch_size', type=int, default=8)
     parser.add_argument('--epochs', type=int, default=3)
     parser.add_argument('--lr', type=float, default=5e-5)
