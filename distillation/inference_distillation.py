@@ -180,7 +180,7 @@ def get_args():
     parser = argparse.ArgumentParser(description="Random 3 Inference with Distilled GPT-2")
     parser.add_argument(
         "--checkpoint", type=str, required=True,
-        help="Path to the student checkpoint (e.g. models/student.pt)"
+        help="Path to the student checkpoint (e.g. saved_models/student.pt)"
     )
     parser.add_argument(
         "--max_length", type=int, default=512,

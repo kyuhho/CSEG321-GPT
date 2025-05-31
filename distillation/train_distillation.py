@@ -174,7 +174,7 @@ def get_args():
     parser.add_argument('--lr', type=float, default=5e-5)
     parser.add_argument('--temperature', type=float, default=2.0)
     parser.add_argument('--max_length', type=int, default=512)
-    parser.add_argument('--save_dir', type=str, default='models')
+    parser.add_argument('--save_dir', type=str, default='saved_models')
     parser.add_argument('--seed', type=int, default=11711)
     parser.add_argument('--debug', action='store_true', help="Use a small subset of data for quick testing")
     return parser.parse_args()
