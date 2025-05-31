@@ -10,4 +10,6 @@ out/
 data/cnndata/test.json
 data/cnndata/train.json
 data/cnndata/validation.json
+models/gpt2_custom_cnn.pthdata/cnndata/train.json
+data/cnndata/validation.json
 models/gpt2_custom_cnn.pth
