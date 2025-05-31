@@ -31,7 +31,7 @@ def save_model(model: torch.nn.Module, path: str):
     torch.save(model.state_dict(), path)  # 또는 torch.save(model, path) 로 전체 저장 가능
 
 if __name__ == "__main__":
-    student_ckpt_path = "models/student.pt"
+    student_ckpt_path = "saved_models/student.pt"
     quant_ckpt_path = "student_quant.pt"
 
     print("📦 Loading student model...")
