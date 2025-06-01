@@ -12,7 +12,7 @@ from sklearn.metrics import f1_score, accuracy_score
 from tqdm import tqdm
 import numpy as np
 from sacrebleu.metrics import CHRF
-from datasets import (
+from gpt_datasets import (
   SonnetsDataset,
 )
 
