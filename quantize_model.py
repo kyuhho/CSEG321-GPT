@@ -32,7 +32,7 @@ def save_model(model: torch.nn.Module, path: str):
 
 if __name__ == "__main__":
     student_ckpt_path = "saved_models/student.pt"  # ✅ 실제 저장된 경로로 수정
-    quant_ckpt_path = "student_quant.pt"
+    quant_ckpt_path = "saved_models/student_quant.pt"
 
     print("📦 Loading student model...")
     model = load_student_model(student_ckpt_path)
