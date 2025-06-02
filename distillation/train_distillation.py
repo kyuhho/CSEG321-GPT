@@ -159,7 +159,7 @@ def train(args):
         if avg_val_loss < best_val_loss:
             best_val_loss = avg_val_loss
             torch.save({
-                'model_state_dict': student_model.state_dict(),
+                'state_dict': student_model.state_dict(),
                 'config': student_config,
                 'optimizer_state_dict': optimizer.state_dict(),
                 'epoch': epoch,
