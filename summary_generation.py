@@ -100,11 +100,12 @@ def main(args):
         if key in scores:
             print(f"{key.upper()} - F1: {scores[key]:.4f}")
 
-    # 5. 요약 저장
-    output_path = f"generated_summaries_{args.model_type}.json"
-    with open(output_path, "w", encoding="utf-8") as f:
-        json.dump(summaries_to_save, f, ensure_ascii=False, indent=2)
-    print(f"\n📄 Summaries saved to {output_path}")
+    # 필요 시 요약 저장
+    # # 5. 요약 저장
+    # output_path = f"generated_summaries_{args.model_type}.json"
+    # with open(output_path, "w", encoding="utf-8") as f:
+    #     json.dump(summaries_to_save, f, ensure_ascii=False, indent=2)
+    # print(f"\n📄 Summaries saved to {output_path}")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
