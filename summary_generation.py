@@ -8,18 +8,18 @@ from tqdm import tqdm
 from datasets import load_dataset
 from evaluate import load as load_metric
 from transformers import (
-    AutoTokenizer,
-    AutoModelForSeq2SeqLM,
-    GPT2Tokenizer
+    GPT2Tokenizer,
+    GPT2LMHeadModel
 )
 
 from config import GPT2Config  # 필요 시 사용
 
 def load_model(model_type, device):
     if model_type == "baseline":
-        print("\U0001F4E6 Loading baseline model: facebook/bart-large-cnn")
-        tokenizer = AutoTokenizer.from_pretrained("facebook/bart-large-cnn")
-        model = AutoModelForSeq2SeqLM.from_pretrained("facebook/bart-large-cnn").to(device)
+        print("\U0001F4E6 Loading baseline model: gavin124/gpt2-finetuned-cnn-summarization-v2")
+        tokenizer = GPT2Tokenizer.from_pretrained("gavin124/gpt2-finetuned-cnn-summarization-v2")
+        tokenizer.pad_token = tokenizer.eos_token
+        model = GPT2LMHeadModel.from_pretrained("gavin124/gpt2-finetuned-cnn-summarization-v2").to(device)
         return model, tokenizer
 
     elif model_type == "ours":
@@ -35,14 +35,24 @@ def load_model(model_type, device):
 
 def generate_summary(model, tokenizer, article, device, model_type):
     if model_type == "baseline":
+        # GPT2 모델에 맞는 프롬프트 형식 사용
         inputs = tokenizer(
-            article, return_tensors="pt",
-            truncation=True, padding=True,
+            "Article: " + article.strip() + "\nSummary:",
+            return_tensors="pt",
+            truncation=True, padding="max_length",
             max_length=1024
         ).to(device)
 
         with torch.no_grad():
-            outputs = model.generate(**inputs, max_new_tokens=128)
+            outputs = model.generate(
+                input_ids=inputs["input_ids"],
+                attention_mask=inputs["attention_mask"],
+                max_new_tokens=128,
+                pad_token_id=tokenizer.eos_token_id,
+                do_sample=True,
+                temperature=0.7,
+                top_p=0.9
+            )
 
     else:  # ours
         inputs = tokenizer(
@@ -60,7 +70,16 @@ def generate_summary(model, tokenizer, article, device, model_type):
                 pad_token_id=tokenizer.eos_token_id
             )
 
-    return tokenizer.decode(outputs[0], skip_special_tokens=True)
+    # 입력 부분을 제거하고 새로 생성된 부분만 반환
+    generated_text = tokenizer.decode(outputs[0], skip_special_tokens=True)
+    
+    # "Summary:" 이후 부분만 추출
+    if "Summary:" in generated_text:
+        summary = generated_text.split("Summary:")[-1].strip()
+    else:
+        summary = generated_text.strip()
+    
+    return summary
 
 def main(args):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
