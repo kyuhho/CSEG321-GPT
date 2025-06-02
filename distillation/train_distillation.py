@@ -94,9 +94,9 @@ def train(args):
 
     # 빠른 테스트를 위한 데이터 샘플링
     if getattr(args, "debug", False):
-        print("[DEBUG MODE] Using small dataset subset (train=1000, val=200)")
-        dataset["train"] = dataset["train"].select(range(1000))
-        dataset["validation"] = dataset["validation"].select(range(200))
+        print("[DEBUG MODE] Using small dataset subset (train=, val=1)")
+        dataset["train"] = dataset["train"].select(range(1))
+        dataset["validation"] = dataset["validation"].select(range(1))
 
     train_dataset = CNNDailyMailDataset(dataset['train'], tokenizer, args.max_length)
     val_dataset = CNNDailyMailDataset(dataset['validation'], tokenizer, args.max_length)
@@ -159,7 +159,7 @@ def train(args):
         if avg_val_loss < best_val_loss:
             best_val_loss = avg_val_loss
             torch.save({
-                'model_state_dict': student_model.state_dict(),
+                'state_dict': student_model.state_dict(),
                 'config': student_config,
                 'optimizer_state_dict': optimizer.state_dict(),
                 'epoch': epoch,
