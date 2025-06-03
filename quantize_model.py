@@ -10,9 +10,11 @@ torch.backends.quantized.engine = 'qnnpack'  # ✅ 필수 설정
 from models.gpt2 import GPT2Model
 from config import GPT2Config
 
+torch.serialization.add_safe_globals([GPT2Config])
+
 # quantize_model.py 수정
 def load_student_model(checkpoint_path: str) -> GPT2Model:
-    ckpt = torch.load(checkpoint_path, map_location='cpu')
+    ckpt = torch.load(checkpoint_path, map_location='cpu', weights_only=False)
 
     config = ckpt["config"]  # ✅ 이미 GPT2Config 객체
     model = GPT2Model(config)
