@@ -94,9 +94,9 @@ def train(args):
 
     # 빠른 테스트를 위한 데이터 샘플링
     if getattr(args, "debug", False):
-        print("[DEBUG MODE] Using small dataset subset (train=1000, val=200)")
-        dataset["train"] = dataset["train"].select(range(1000))
-        dataset["validation"] = dataset["validation"].select(range(200))
+        print("[DEBUG MODE] Using small dataset subset (train=100, val=20)")
+        dataset["train"] = dataset["train"].select(range(100))
+        dataset["validation"] = dataset["validation"].select(range(20))
 
     train_dataset = CNNDailyMailDataset(dataset['train'], tokenizer, args.max_length)
     val_dataset = CNNDailyMailDataset(dataset['validation'], tokenizer, args.max_length)
