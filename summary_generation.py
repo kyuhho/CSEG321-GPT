@@ -40,7 +40,7 @@ def generate_summary(model, tokenizer, article, device, model_type):
             "Article: " + article.strip() + "\nSummary:",
             return_tensors="pt",
             truncation=True, padding="max_length",
-            max_length=2048
+            max_length=1024
         ).to(device)
 
         with torch.no_grad():
@@ -59,7 +59,7 @@ def generate_summary(model, tokenizer, article, device, model_type):
             "Article: " + article.strip() + "\nSummary:",
             return_tensors="pt",
             truncation=True, padding="max_length",
-            max_length=2048
+            max_length=1024
         ).to(device)
 
         with torch.no_grad():
