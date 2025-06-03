@@ -14,35 +14,28 @@ sys.path.append('.')
 
 def load_quantized_model(checkpoint_path: str, device):
     """Quantized 모델을 로드하는 함수"""
-    from models.gpt2 import GPT2Model
-    from config import GPT2Config
-    
-    # Quantized 모델 로드
     print(f"📦 Loading quantized model from {checkpoint_path}")
     
-    # 원본 student 모델 구조를 먼저 로드
-    student_path = "saved_models/student.pt"
-    student_ckpt = torch.load(student_path, map_location='cpu', weights_only=False)
-    config = student_ckpt["config"]
-    
-    # Student 모델 생성
-    model = GPT2Model(config)
-    
-    # Quantized 상태 로드
-    quantized_state = torch.load(checkpoint_path, map_location='cpu', weights_only=False)
-    model.load_state_dict(quantized_state)
-    
-    # Dynamic quantization 적용
-    model = torch.quantization.quantize_dynamic(
-        model,
-        {torch.nn.Linear},
-        dtype=torch.qint8
-    )
-    
-    model = model.to(device)
-    model.eval()
-    
-    return model, config
+    try:
+        # Quantized 모델 전체를 로드
+        ckpt = torch.load(checkpoint_path, map_location='cpu', weights_only=False)
+        
+        model = ckpt['model']
+        config = ckpt['config']
+        
+        print(f"✅ Loaded quantized model with config:")
+        print(f"  - Hidden size: {config.hidden_size}")
+        print(f"  - Num layers: {config.num_hidden_layers}")
+        print(f"  - Num attention heads: {config.num_attention_heads}")
+        
+        model = model.to(device)
+        model.eval()
+        
+        return model, config
+        
+    except Exception as e:
+        print(f"❌ Error loading quantized model: {e}")
+        raise e
 
 def load_model(model_type, device):
     if model_type == "baseline":
