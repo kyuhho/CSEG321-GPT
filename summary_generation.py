@@ -1,46 +1,35 @@
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
-from transformers import GPT2Tokenizer, GPT2LMHeadModel, GPT2Config
+from transformers import GPT2Tokenizer, GPT2LMHeadModel
 from datasets import load_dataset
 from tqdm import tqdm
 import evaluate  # evaluate 라이브러리로 변경
-from models.gpt2 import GPT2Model as StudentGPT2Model
 import os
-
-def load_quantized_model(path, device='cpu'):
-    """양자화된 모델 로드"""
-    print(f"Loading quantized model from {path}")
-    checkpoint = torch.load(path, map_location=device)
-    
-    quantized_model = checkpoint['quantized_model']
-    config = checkpoint['config']
-    
-    return quantized_model, config
 
 def load_model(model_type, device):
     if model_type == "baseline":
         print("📦 Loading baseline model: gavin124/gpt2-finetuned-cnn-summarization-v2")
         tokenizer = GPT2Tokenizer.from_pretrained("gavin124/gpt2-finetuned-cnn-summarization-v2")
+        # 패딩 토큰 설정
         if tokenizer.pad_token is None:
             tokenizer.pad_token = tokenizer.eos_token
         model = GPT2LMHeadModel.from_pretrained("gavin124/gpt2-finetuned-cnn-summarization-v2").to(device)
+        
+        # 모델과 토크나이저 호환성 확인
         print(f"Model vocab size: {model.config.vocab_size}")
         print(f"Tokenizer vocab size: {len(tokenizer)}")
+        
         return model, tokenizer
 
     elif model_type == "ours":
-        print("📦 Loading our quantized GPT2 model")
+        print("📦 Loading our custom GPT2 model")
+        from models.gpt2 import GPT2ModelForGeneration
         tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
         if tokenizer.pad_token is None:
             tokenizer.pad_token = tokenizer.eos_token
-        
-        # 양자화된 모델 로드
-        quant_model, config = load_quantized_model("saved_models/student_quant.pt", device)
-        quant_model.eval()
-        
-        # 양자화된 모델은 이미 CPU/GPU에 적절히 배치되어 있음
-        return quant_model, tokenizer
+        model = GPT2ModelForGeneration.from_pretrained("path_to_your_model").to(device)
+        return model, tokenizer
 
     else:
         raise ValueError("Unknown model type. Choose from ['baseline', 'ours'].")

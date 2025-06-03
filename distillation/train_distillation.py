@@ -77,23 +77,6 @@ def load_models_and_tokenizer():
 
     return teacher_model, student_model, tokenizer, device, student_config
 
-def save_student_model(student_model, student_config, optimizer, epoch, val_loss, save_dir):
-    """학생 모델을 완전한 형태로 저장"""
-    checkpoint = {
-        'model_state_dict': student_model.state_dict(),
-        'config': student_config,
-        'optimizer_state_dict': optimizer.state_dict(),
-        'epoch': epoch,
-        'val_loss': val_loss
-    }
-    torch.save(checkpoint, f"{save_dir}/student_checkpoint.pt")
-    
-    # 모델만 따로 저장 (추론용)
-    torch.save({
-        'model_state_dict': student_model.state_dict(),
-        'config': student_config
-    }, f"{save_dir}/student_model.pt")
-
 def distillation_loss(student_logits, teacher_logits, temperature):
     """
     Compute the distillation loss (KL divergence between teacher and student logits)
@@ -175,8 +158,14 @@ def train(args):
 
         if avg_val_loss < best_val_loss:
             best_val_loss = avg_val_loss
-            save_student_model(student_model, student_config, optimizer, epoch, best_val_loss, args.save_dir)
-            print(f"💾 Best model saved with validation loss: {best_val_loss:.4f}")
+            torch.save({
+                'state_dict': student_model.state_dict(),
+                'config': student_config,
+                'optimizer_state_dict': optimizer.state_dict(),
+                'epoch': epoch,
+                'val_loss': best_val_loss
+            }, f"{args.save_dir}/student.pt")
+
 
 def get_args():
     parser = argparse.ArgumentParser()
