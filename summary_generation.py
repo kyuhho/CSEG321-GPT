@@ -6,6 +6,43 @@ from datasets import load_dataset
 from tqdm import tqdm
 import evaluate  # evaluate 라이브러리로 변경
 import os
+import sys
+
+# 모델 경로 추가
+sys.path.append('distillation')
+sys.path.append('.')
+
+def load_quantized_model(checkpoint_path: str, device):
+    """Quantized 모델을 로드하는 함수"""
+    from models.gpt2 import GPT2Model
+    from config import GPT2Config
+    
+    # Quantized 모델 로드
+    print(f"📦 Loading quantized model from {checkpoint_path}")
+    
+    # 원본 student 모델 구조를 먼저 로드
+    student_path = "saved_models/student.pt"
+    student_ckpt = torch.load(student_path, map_location='cpu', weights_only=False)
+    config = student_ckpt["config"]
+    
+    # Student 모델 생성
+    model = GPT2Model(config)
+    
+    # Quantized 상태 로드
+    quantized_state = torch.load(checkpoint_path, map_location='cpu', weights_only=False)
+    model.load_state_dict(quantized_state)
+    
+    # Dynamic quantization 적용
+    model = torch.quantization.quantize_dynamic(
+        model,
+        {torch.nn.Linear},
+        dtype=torch.qint8
+    )
+    
+    model = model.to(device)
+    model.eval()
+    
+    return model, config
 
 def load_model(model_type, device):
     if model_type == "baseline":
@@ -23,12 +60,21 @@ def load_model(model_type, device):
         return model, tokenizer
 
     elif model_type == "ours":
-        print("📦 Loading our custom GPT2 model")
-        from models.gpt2 import GPT2ModelForGeneration
-        tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
+        print("📦 Loading our quantized GPT2 model")
+        
+        # Tokenizer는 baseline과 동일하게 사용
+        tokenizer = GPT2Tokenizer.from_pretrained("gavin124/gpt2-finetuned-cnn-summarization-v2")
         if tokenizer.pad_token is None:
             tokenizer.pad_token = tokenizer.eos_token
-        model = GPT2ModelForGeneration.from_pretrained("path_to_your_model").to(device)
+        
+        # Quantized 모델 로드
+        model, config = load_quantized_model("saved_models/student_quant.pt", device)
+        
+        print(f"✅ Loaded quantized model with config:")
+        print(f"  - Hidden size: {config.hidden_size}")
+        print(f"  - Num layers: {config.num_hidden_layers}")
+        print(f"  - Num attention heads: {config.num_attention_heads}")
+        
         return model, tokenizer
 
     else:
@@ -79,7 +125,7 @@ def generate_summary(model, tokenizer, article, device, model_type):
                     # attention_mask 제거 (패딩이 없으므로)
                 )
 
-        else:  # ours
+        else:  # ours - quantized model
             inputs = tokenizer(
                 prompt,
                 return_tensors="pt",
@@ -88,13 +134,38 @@ def generate_summary(model, tokenizer, article, device, model_type):
                 padding=False
             ).to(device)
 
+            # 우리 모델은 custom GPT2Model이므로 직접 forward pass 수행
             with torch.no_grad():
-                outputs = model.generate(
-                    input_ids=inputs["input_ids"],
-                    max_new_tokens=100,
-                    pad_token_id=tokenizer.eos_token_id,
-                    eos_token_id=tokenizer.eos_token_id
-                )
+                # 입력 길이 확인
+                input_length = inputs["input_ids"].shape[1]
+                max_new_tokens = 100
+                
+                input_ids = inputs["input_ids"]
+                generated_ids = input_ids.clone()
+                
+                # Auto-regressive generation
+                for _ in range(max_new_tokens):
+                    # 현재까지 생성된 토큰들로 다음 토큰 예측
+                    model_outputs = model(input_ids=generated_ids)
+                    hidden_states = model_outputs['last_hidden_state']
+                    
+                    # Hidden states를 logits로 변환
+                    logits = model.hidden_state_to_token(hidden_states)
+                    
+                    # 마지막 토큰의 logits만 사용
+                    next_token_logits = logits[:, -1, :]
+                    
+                    # 다음 토큰 선택 (greedy decoding)
+                    next_token = torch.argmax(next_token_logits, dim=-1, keepdim=True)
+                    
+                    # EOS 토큰이면 생성 중단
+                    if next_token.item() == tokenizer.eos_token_id:
+                        break
+                    
+                    # 생성된 토큰을 시퀀스에 추가
+                    generated_ids = torch.cat([generated_ids, next_token], dim=-1)
+                
+                outputs = generated_ids
 
         # 생성된 텍스트 디코딩
         generated_text = tokenizer.decode(outputs[0], skip_special_tokens=True)
@@ -114,6 +185,8 @@ def generate_summary(model, tokenizer, article, device, model_type):
         
     except Exception as e:
         print(f"Error generating summary: {e}")
+        import traceback
+        traceback.print_exc()
         return "Error: Could not generate summary"
 
 def main(args):
