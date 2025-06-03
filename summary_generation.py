@@ -1,32 +1,33 @@
-# python summary_generation.py --model_type baseline 로 base line 성능테스트
-# python summary_generation.py --model_type ours 로 경량화 한 모델 성능테스트
-
 import torch
-import argparse
-import json
-from tqdm import tqdm
+import torch.nn as nn
+from torch.utils.data import DataLoader
+from transformers import GPT2Tokenizer, GPT2LMHeadModel
 from datasets import load_dataset
-from evaluate import load as load_metric
-from transformers import (
-    GPT2Tokenizer,
-    GPT2LMHeadModel
-)
-
-from config import GPT2Config  # 필요 시 사용
+from tqdm import tqdm
+import evaluate  # evaluate 라이브러리로 변경
+import os
 
 def load_model(model_type, device):
     if model_type == "baseline":
-        print("\U0001F4E6 Loading baseline model: gavin124/gpt2-finetuned-cnn-summarization-v2")
+        print("📦 Loading baseline model: gavin124/gpt2-finetuned-cnn-summarization-v2")
         tokenizer = GPT2Tokenizer.from_pretrained("gavin124/gpt2-finetuned-cnn-summarization-v2")
-        tokenizer.pad_token = tokenizer.eos_token
+        # 패딩 토큰 설정
+        if tokenizer.pad_token is None:
+            tokenizer.pad_token = tokenizer.eos_token
         model = GPT2LMHeadModel.from_pretrained("gavin124/gpt2-finetuned-cnn-summarization-v2").to(device)
+        
+        # 모델과 토크나이저 호환성 확인
+        print(f"Model vocab size: {model.config.vocab_size}")
+        print(f"Tokenizer vocab size: {len(tokenizer)}")
+        
         return model, tokenizer
 
     elif model_type == "ours":
-        print("\U0001F4E6 Loading our custom GPT2 model")
-        from models.gpt2 import GPT2ModelForGeneration  # 너의 모델 이름에 맞게 수정
+        print("📦 Loading our custom GPT2 model")
+        from models.gpt2 import GPT2ModelForGeneration
         tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
-        tokenizer.pad_token = tokenizer.eos_token
+        if tokenizer.pad_token is None:
+            tokenizer.pad_token = tokenizer.eos_token
         model = GPT2ModelForGeneration.from_pretrained("path_to_your_model").to(device)
         return model, tokenizer
 
@@ -34,102 +35,169 @@ def load_model(model_type, device):
         raise ValueError("Unknown model type. Choose from ['baseline', 'ours'].")
 
 def generate_summary(model, tokenizer, article, device, model_type):
-    if model_type == "baseline":
-        # GPT2 모델에 맞는 프롬프트 형식 사용
-        inputs = tokenizer(
-            "Article: " + article.strip() + "\nSummary:",
-            return_tensors="pt",
-            truncation=True, padding="max_length",
-            max_length=1024
-        ).to(device)
-
-        with torch.no_grad():
-            outputs = model.generate(
-                input_ids=inputs["input_ids"],
-                attention_mask=inputs["attention_mask"],
-                max_new_tokens=128,
-                pad_token_id=tokenizer.eos_token_id,
-                do_sample=True,
-                temperature=0.7,
-                top_p=0.9
-            )
-
-    else:  # ours
-        inputs = tokenizer(
-            "Article: " + article.strip() + "\nSummary:",
-            return_tensors="pt",
-            truncation=True, padding="max_length",
-            max_length=1024
-        ).to(device)
-
-        with torch.no_grad():
-            outputs = model.generate(
-                input_ids=inputs["input_ids"],
-                attention_mask=inputs["attention_mask"],
-                max_new_tokens=128,
-                pad_token_id=tokenizer.eos_token_id
-            )
-
-    # 입력 부분을 제거하고 새로 생성된 부분만 반환
-    generated_text = tokenizer.decode(outputs[0], skip_special_tokens=True)
+    # 기사 길이 제한 (너무 긴 입력 방지)
+    max_article_length = 800
+    if len(article) > max_article_length:
+        article = article[:max_article_length]
     
-    # "Summary:" 이후 부분만 추출
-    if "Summary:" in generated_text:
-        summary = generated_text.split("Summary:")[-1].strip()
-    else:
-        summary = generated_text.strip()
+    prompt = f"Article: {article.strip()}\nSummary:"
     
-    return summary
+    try:
+        if model_type == "baseline":
+            # 패딩 없이 처리
+            inputs = tokenizer(
+                prompt,
+                return_tensors="pt",
+                truncation=True,
+                max_length=512,  # 1024에서 512로 줄임
+                padding=False    # 패딩 제거
+            ).to(device)
+            
+            # 입력 길이 확인
+            input_length = inputs["input_ids"].shape[1]
+            print(f"Input tokens: {input_length}")
+            
+            # 입력이 너무 길면 더 줄이기
+            if input_length > 400:
+                inputs = tokenizer(
+                    prompt,
+                    return_tensors="pt",
+                    truncation=True,
+                    max_length=300,
+                    padding=False
+                ).to(device)
+
+            with torch.no_grad():
+                outputs = model.generate(
+                    input_ids=inputs["input_ids"],
+                    max_new_tokens=100,  # 128에서 100으로 줄임
+                    pad_token_id=tokenizer.eos_token_id,
+                    eos_token_id=tokenizer.eos_token_id,
+                    do_sample=True,
+                    temperature=0.7,
+                    top_p=0.9,
+                    # attention_mask 제거 (패딩이 없으므로)
+                )
+
+        else:  # ours
+            inputs = tokenizer(
+                prompt,
+                return_tensors="pt",
+                truncation=True,
+                max_length=512,
+                padding=False
+            ).to(device)
+
+            with torch.no_grad():
+                outputs = model.generate(
+                    input_ids=inputs["input_ids"],
+                    max_new_tokens=100,
+                    pad_token_id=tokenizer.eos_token_id,
+                    eos_token_id=tokenizer.eos_token_id
+                )
+
+        # 생성된 텍스트 디코딩
+        generated_text = tokenizer.decode(outputs[0], skip_special_tokens=True)
+        
+        # "Summary:" 이후 부분만 추출
+        if "Summary:" in generated_text:
+            summary = generated_text.split("Summary:")[-1].strip()
+        else:
+            # 입력 부분 제거
+            input_text = tokenizer.decode(inputs["input_ids"][0], skip_special_tokens=True)
+            if input_text in generated_text:
+                summary = generated_text.replace(input_text, "").strip()
+            else:
+                summary = generated_text.strip()
+        
+        return summary
+        
+    except Exception as e:
+        print(f"Error generating summary: {e}")
+        return "Error: Could not generate summary"
 
 def main(args):
+    # CUDA 디버깅 활성화
+    os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
+    
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"\n🚀 Evaluating model: {args.model_type}\n")
+    print(f"\n🚀 Evaluating model: {args.model_type}")
+    print(f"🔧 Using device: {device}\n")
 
-    # 1. 모델 로드
-    model, tokenizer = load_model(args.model_type, device)
+    try:
+        # 1. 모델 로드
+        model, tokenizer = load_model(args.model_type, device)
+        
+        # 2. CNN/DailyMail 데이터 로드
+        print("📊 Loading dataset...")
+        dataset = load_dataset("abisee/cnn_dailymail", "3.0.0")["test"]
+        dataset = dataset.select(range(args.num_samples))
 
-    # 2. CNN/DailyMail 데이터 로드
-    dataset = load_dataset("abisee/cnn_dailymail", "3.0.0")["test"]
-    dataset = dataset.select(range(args.num_samples))  # 일부 샘플만 사용
+        # 3. 요약 생성
+        predictions = []
+        references = []
+        summaries_to_save = []
+        
+        successful_generations = 0
+        
+        for i, item in enumerate(tqdm(dataset, desc="📝 Generating summaries")):
+            try:
+                article = item["article"]
+                reference = item["highlights"]
+                summary = generate_summary(model, tokenizer, article, device, args.model_type)
+                
+                if summary and not summary.startswith("Error:"):
+                    predictions.append(summary)
+                    references.append(reference)
+                    summaries_to_save.append({
+                        "id": i,
+                        "article": article[:300] + "...",
+                        "reference": reference,
+                        "summary": summary
+                    })
+                    successful_generations += 1
+                else:
+                    print(f"Failed to generate summary for sample {i}")
+                    
+            except Exception as e:
+                print(f"Error processing sample {i}: {e}")
+                continue
 
-    # 3. 요약 생성
-    predictions = []
-    references = []
-    summaries_to_save = []
+        print(f"\n✅ Successfully generated {successful_generations}/{args.num_samples} summaries")
 
-    for item in tqdm(dataset, desc="📝 Generating summaries"):
-        article = item["article"]
-        reference = item["highlights"]
-        summary = generate_summary(model, tokenizer, article, device, args.model_type)
+        if len(predictions) > 0:
+            # 4. ROUGE 평가
+            print("📊 Computing ROUGE scores...")
+            rouge = evaluate.load("rouge")  # load_metric 대신 evaluate.load 사용
+            scores = rouge.compute(predictions=predictions, references=references, use_stemmer=True)
 
-        predictions.append(summary)
-        references.append(reference)
-        summaries_to_save.append({
-            "article": article[:300] + "...",
-            "reference": reference,
-            "summary": summary
-        })
+            print("\n📊 ROUGE Scores:")
+            for key in ["rouge1", "rouge2", "rougeL", "rougeLsum"]:
+                if key in scores:
+                    print(f"{key.upper()} - F1: {scores[key]:.4f}")
+                    
+            # 결과 저장
+            import json
+            output_file = f"summaries_{args.model_type}_{args.num_samples}.json"
+            with open(output_file, 'w', encoding='utf-8') as f:
+                json.dump({
+                    "scores": scores,
+                    "summaries": summaries_to_save
+                }, f, indent=2, ensure_ascii=False)
+            print(f"\n💾 Results saved to {output_file}")
+            
+        else:
+            print("❌ No successful summaries generated!")
 
-    # 4. ROUGE 평가
-    rouge = load_metric("rouge")
-    scores = rouge.compute(predictions=predictions, references=references, use_stemmer=True)
-
-    print("\n📊 ROUGE Scores:")
-    for key in ["rouge1", "rouge2", "rougeL", "rougeLsum"]:
-        if key in scores:
-            print(f"{key.upper()} - F1: {scores[key]:.4f}")
-
-    # 필요 시 요약 저장
-    # # 5. 요약 저장
-    # output_path = f"generated_summaries_{args.model_type}.json"
-    # with open(output_path, "w", encoding="utf-8") as f:
-    #     json.dump(summaries_to_save, f, ensure_ascii=False, indent=2)
-    # print(f"\n📄 Summaries saved to {output_path}")
+    except Exception as e:
+        print(f"❌ Main execution error: {e}")
+        import traceback
+        traceback.print_exc()
 
 if __name__ == "__main__":
+    import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model_type", choices=["baseline", "ours"], required=True)
-    parser.add_argument("--num_samples", type=int, default=100, help="Number of test samples to evaluate")
+    parser.add_argument("--model_type", type=str, required=True, choices=["baseline", "ours"])
+    parser.add_argument("--num_samples", type=int, default=50)
     args = parser.parse_args()
-
     main(args)
