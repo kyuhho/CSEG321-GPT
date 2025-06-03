@@ -138,8 +138,11 @@ def generate_summary(model, tokenizer, article, device, model_type):
                 
                 # Auto-regressive generation
                 for _ in range(max_new_tokens):
+                    # 현재까지 생성된 토큰들에 대한 attention mask 생성
+                    attention_mask = torch.ones_like(generated_ids)
+                    
                     # 현재까지 생성된 토큰들로 다음 토큰 예측
-                    model_outputs = model(input_ids=generated_ids)
+                    model_outputs = model(input_ids=generated_ids, attention_mask=attention_mask)
                     hidden_states = model_outputs['last_hidden_state']
                     
                     # Hidden states를 logits로 변환
