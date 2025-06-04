@@ -26,11 +26,23 @@ def load_model(model_type, device):
         return model, tokenizer
 
     elif model_type == "ours":
-        print("\U0001F4E6 Loading our custom GPT2 model")
-        from models.gpt2 import GPT2ModelForGeneration  # 너의 모델 이름에 맞게 수정
+        print("📦 Loading our quantized student model")
+        from config import GPT2Config
+        from models.gpt2 import GPT2Model
+
+        checkpoint_path = "saved_models/student_quant.pt"
+        
+        # ✅ config와 state_dict 함께 로드
+        ckpt = torch.load(checkpoint_path, map_location=device)
+        config = ckpt["config"]
+        model = GPT2Model(config)
+        model.load_state_dict(ckpt["state_dict"])
+        model.to(device)
+        model.eval()
+
         tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
         tokenizer.pad_token = tokenizer.eos_token
-        model = GPT2ModelForGeneration.from_pretrained("path_to_your_model").to(device)
+
         return model, tokenizer
 
     else:

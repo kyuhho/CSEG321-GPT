@@ -29,7 +29,7 @@ def quantize_model(model: torch.nn.Module) -> torch.nn.Module:
 
 def save_model(model: torch.nn.Module, path: str):
     torch.save(model.state_dict(), path)  # 또는 torch.save(model, path) 로 전체 저장 가능
-
+    
 if __name__ == "__main__":
     student_ckpt_path = "saved_models/student.pt"  # ✅ 실제 저장된 경로로 수정
     quant_ckpt_path = "saved_models/student_quant.pt"
@@ -42,5 +42,7 @@ if __name__ == "__main__":
 
     print("💾 Saving quantized model...")
     save_model(quant_model, quant_ckpt_path)
+    #save_model(quant_model, quant_ckpt_path, config=model.config)해야 모델 불러올 수 있음 아니면 학습 끝난 모델에서 config 추출
+
 
     print(f"✅ Quantized model saved to {quant_ckpt_path}")
