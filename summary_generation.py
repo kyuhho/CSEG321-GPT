@@ -13,27 +13,25 @@ sys.path.append('distillation')
 sys.path.append('.')
 
 def load_quantized_model(checkpoint_path: str, device):
-    """Quantized 모델을 로드하는 함수 - CPU에서 실행"""
+    """Quantized 모델을 로드하는 함수"""
     print(f"📦 Loading quantized model from {checkpoint_path}")
     
     try:
-        # Quantized 모델은 CPU에서 로드
-        cpu_device = torch.device('cpu')
+        # Quantized 모델 전체를 로드
         ckpt = torch.load(checkpoint_path, map_location='cpu', weights_only=False)
         
         model = ckpt['model']
         config = ckpt['config']
         
-        print(f"✅ Loaded quantized model with config (CPU):")
+        print(f"✅ Loaded quantized model with config:")
         print(f"  - Hidden size: {config.hidden_size}")
         print(f"  - Num layers: {config.num_hidden_layers}")
         print(f"  - Num attention heads: {config.num_attention_heads}")
         
-        # quantized 모델은 강제로 CPU에서 실행
-        model = model.to(cpu_device)
+        model = model.to(device)
         model.eval()
         
-        return model, config, cpu_device
+        return model, config
         
     except Exception as e:
         print(f"❌ Error loading quantized model: {e}")
@@ -51,9 +49,8 @@ def load_model(model_type, device):
         # 모델과 토크나이저 호환성 확인
         print(f"Model vocab size: {model.config.vocab_size}")
         print(f"Tokenizer vocab size: {len(tokenizer)}")
-        print(f"📌 Baseline model running on: {device}")
         
-        return model, tokenizer, device
+        return model, tokenizer
 
     elif model_type == "ours":
         print("📦 Loading our quantized GPT2 model")
@@ -63,16 +60,15 @@ def load_model(model_type, device):
         if tokenizer.pad_token is None:
             tokenizer.pad_token = tokenizer.eos_token
         
-        # Quantized 모델 로드 - CPU 디바이스 반환
-        model, config, actual_device = load_quantized_model("saved_models/student_quant.pt", device)
+        # Quantized 모델 로드
+        model, config = load_quantized_model("saved_models/student_quant.pt", device)
         
         print(f"✅ Loaded quantized model with config:")
         print(f"  - Hidden size: {config.hidden_size}")
         print(f"  - Num layers: {config.num_hidden_layers}")
         print(f"  - Num attention heads: {config.num_attention_heads}")
-        print(f"📌 Quantized model running on: {actual_device}")
         
-        return model, tokenizer, actual_device
+        return model, tokenizer
 
     else:
         raise ValueError("Unknown model type. Choose from ['baseline', 'ours'].")
@@ -122,14 +118,14 @@ def generate_summary(model, tokenizer, article, device, model_type):
                     # attention_mask 제거 (패딩이 없으므로)
                 )
 
-        else:  # ours - quantized model (CPU)
+        else:  # ours - quantized model
             inputs = tokenizer(
                 prompt,
                 return_tensors="pt",
                 truncation=True,
                 max_length=512,
                 padding=False
-            ).to(device)  # device는 이미 CPU
+            ).to(device)
 
             # 우리 모델은 custom GPT2Model이므로 직접 forward pass 수행
             with torch.no_grad():
@@ -195,18 +191,18 @@ def main(args):
     
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"\n🚀 Evaluating model: {args.model_type}")
-    print(f"🔧 Default device: {device}\n")
+    print(f"🔧 Using device: {device}\n")
 
     try:
-        # 1. 모델 로드 (actual_device 반환받음)
-        model, tokenizer, actual_device = load_model(args.model_type, device)
+        # 1. 모델 로드
+        model, tokenizer = load_model(args.model_type, device)
         
         # 2. CNN/DailyMail 데이터 로드
         print("📊 Loading dataset...")
         dataset = load_dataset("abisee/cnn_dailymail", "3.0.0")["test"]
         dataset = dataset.select(range(args.num_samples))
 
-        # 3. 요약 생성 (actual_device 사용)
+        # 3. 요약 생성
         predictions = []
         references = []
         summaries_to_save = []
@@ -217,7 +213,7 @@ def main(args):
             try:
                 article = item["article"]
                 reference = item["highlights"]
-                summary = generate_summary(model, tokenizer, article, actual_device, args.model_type)
+                summary = generate_summary(model, tokenizer, article, device, args.model_type)
                 
                 if summary and not summary.startswith("Error:"):
                     predictions.append(summary)
@@ -229,7 +225,6 @@ def main(args):
                         "summary": summary
                     })
                     successful_generations += 1
-                    print(f"✅ Generated summary {i+1}: {summary[:100]}...")
                 else:
                     print(f"Failed to generate summary for sample {i}")
                     
@@ -256,8 +251,7 @@ def main(args):
             with open(output_file, 'w', encoding='utf-8') as f:
                 json.dump({
                     "scores": scores,
-                    "summaries": summaries_to_save,
-                    "device": str(actual_device)  # 실제 사용된 디바이스 정보 저장
+                    "summaries": summaries_to_save
                 }, f, indent=2, ensure_ascii=False)
             print(f"\n💾 Results saved to {output_file}")
             
