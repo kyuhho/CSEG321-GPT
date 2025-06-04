@@ -1,6 +1,7 @@
 # python summary_generation.py --model_type baseline 로 base line 성능테스트
 # python summary_generation.py --model_type ours 로 경량화 한 모델 성능테스트
 
+
 import torch
 import argparse
 import json
@@ -11,6 +12,8 @@ from transformers import (
     GPT2Tokenizer,
     GPT2LMHeadModel
 )
+import psutil
+import os
 
 from config import GPT2Config  # 필요 시 사용
 
@@ -96,11 +99,18 @@ def main(args):
     predictions = []
     references = []
     summaries_to_save = []
+    memory_usages = []
 
     for item in tqdm(dataset, desc="📝 Generating summaries"):
         article = item["article"]
         reference = item["highlights"]
         summary = generate_summary(model, tokenizer, article, device, args.model_type)
+
+
+        # ✅ 메모리 사용량 측정 (CPU 기준)
+        process = psutil.Process(os.getpid())
+        mem_used = process.memory_info().rss / (1024 ** 2)  # MB 단위
+        memory_usages.append(mem_used)
 
         predictions.append(summary)
         references.append(reference)
@@ -118,6 +128,8 @@ def main(args):
     for key in ["rouge1", "rouge2", "rougeL", "rougeLsum"]:
         if key in scores:
             print(f"{key.upper()} - F1: {scores[key]:.4f}")
+    #rouge_l = scores["rougeL"].mid.fmeasure if "rougeL" in scores else 0.0
+    rouge_l = scores["rougeL"] if "rougeL" in scores else 0.0
 
     # 필요 시 요약 저장
     # # 5. 요약 저장
@@ -125,6 +137,22 @@ def main(args):
     # with open(output_path, "w", encoding="utf-8") as f:
     #     json.dump(summaries_to_save, f, ensure_ascii=False, indent=2)
     # print(f"\n📄 Summaries saved to {output_path}")
+
+    # 5. 메모리 사용량 저장
+    avg_memory_usage = sum(memory_usages) / len(memory_usages)
+
+    # 🔽 평가 결과 저장
+    eval_result = {
+        "model_name": args.model_type,
+        "rouge_l": round(rouge_l, 4),
+        "memory_usage_mb": round(avg_memory_usage, 2)
+    }
+
+    with open(f"evaluation_result_{args.model_type}.json", "w") as f:
+        json.dump(eval_result, f, indent=2)
+
+    print(f"\n✅ Evaluation result saved to evaluation_result_{args.model_type}.json")
+    
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
