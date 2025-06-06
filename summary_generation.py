@@ -12,6 +12,8 @@ from transformers import (
 )
 import psutil
 import os
+import gc
+import tracemalloc
 
 from config import GPT2Config  # 필요 시 사용
 from tqdm import tqdm
@@ -23,6 +25,42 @@ import json
 # 모델 경로 추가
 sys.path.append('distillation')
 sys.path.append('.')
+
+def get_model_memory_usage():
+    """현재 모델이 사용하는 GPU/CPU 메모리 측정"""
+    if torch.cuda.is_available():
+        return torch.cuda.memory_allocated() / (1024 ** 2)  # MB
+    else:
+        # CPU의 경우 tracemalloc 사용
+        current, peak = tracemalloc.get_traced_memory()
+        return current / (1024 ** 2)  # MB
+
+def measure_inference_memory(model, tokenizer, article, model_type):
+    """추론 시 메모리 사용량을 정확히 측정하는 함수"""
+    # 메모리 측정 시작
+    if not torch.cuda.is_available():
+        tracemalloc.start()
+    
+    # 가비지 컬렉션으로 메모리 정리
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+    
+    # 추론 전 메모리
+    memory_before = get_model_memory_usage()
+    
+    # 실제 추론 수행
+    summary = generate_summary(model, tokenizer, article, model_type)
+    
+    # 추론 후 메모리
+    memory_after = get_model_memory_usage()
+    
+    # 메모리 측정 종료
+    if not torch.cuda.is_available():
+        tracemalloc.stop()
+    
+    inference_memory = memory_after - memory_before
+    return summary, max(inference_memory, 0)  # 음수 방지
 
 def load_quantized_model(checkpoint_path: str):
     print(f"📦 Loading quantized model from {checkpoint_path}")
@@ -41,6 +79,9 @@ def load_quantized_model(checkpoint_path: str):
         raise e
 
 def load_model(model_type):
+    # 모델 로딩 전 메모리
+    memory_before_loading = get_model_memory_usage()
+    
     if model_type == "baseline":
         print("📦 Loading baseline model: gavin124/gpt2-finetuned-cnn-summarization-v2")
         tokenizer = GPT2Tokenizer.from_pretrained("gavin124/gpt2-finetuned-cnn-summarization-v2")
@@ -48,20 +89,24 @@ def load_model(model_type):
             tokenizer.pad_token = tokenizer.eos_token
         model = GPT2LMHeadModel.from_pretrained("gavin124/gpt2-finetuned-cnn-summarization-v2")
         model.eval()
-        return model, tokenizer
-
+        
     elif model_type == "ours":
-
         print("📦 Loading our quantized GPT2 model")
         tokenizer = GPT2Tokenizer.from_pretrained("gavin124/gpt2-finetuned-cnn-summarization-v2")
         if tokenizer.pad_token is None:
             tokenizer.pad_token = tokenizer.eos_token
         model, config = load_quantized_model("saved_models/student_quant.pt")
-
-        return model, tokenizer
-
+        
     else:
         raise ValueError("Unknown model type. Choose from ['baseline', 'ours'].")
+    
+    # 모델 로딩 후 메모리
+    memory_after_loading = get_model_memory_usage()
+    model_memory = memory_after_loading - memory_before_loading
+    
+    print(f"📊 Model memory usage: {model_memory:.2f} MB")
+    
+    return model, tokenizer, model_memory
 
 def generate_summary(model, tokenizer, article, model_type):
     max_article_length = 800
@@ -128,22 +173,23 @@ def main(args):
     print(f"🔧 Using device: {device} (forced CPU for quantized models)\n")
 
     try:
-        model, tokenizer = load_model(args.model_type)
+        model, tokenizer, model_memory = load_model(args.model_type)
         print("📊 Loading dataset...")
         dataset = load_dataset("abisee/cnn_dailymail", "3.0.0")["test"]
         dataset = dataset.select(range(args.num_samples))
 
-        predictions, references, summaries_to_save , memory_usages = [], [], [], []
+        predictions, references, summaries_to_save, inference_memories = [], [], [], []
         successful_generations = 0
 
         for i, item in enumerate(tqdm(dataset, desc="📝 Generating summaries")):
             article = item["article"]
             reference = item["highlights"]
-            summary = generate_summary(model, tokenizer, article, args.model_type)
+            
+            # 정확한 메모리 측정으로 추론
+            summary, inference_memory = measure_inference_memory(model, tokenizer, article, args.model_type)
+            
             if summary and not summary.startswith("Error:"):
-                process = psutil.Process(os.getpid())
-                mem_used = process.memory_info().rss / (1024 ** 2)  # MB
-                memory_usages.append(mem_used)
+                inference_memories.append(inference_memory)
                 
                 predictions.append(summary)
                 references.append(reference)
@@ -151,7 +197,8 @@ def main(args):
                     "id": i,
                     "article": article[:300] + "...",
                     "reference": reference,
-                    "summary": summary
+                    "summary": summary,
+                    "inference_memory_mb": inference_memory
                 })
                 successful_generations += 1
             else:
@@ -169,15 +216,22 @@ def main(args):
                     print(f"{key.upper()} - F1: {scores[key]:.4f}")
 
             output_file = f"summaries_{args.model_type}_{args.num_samples}.json"
-            avg_memory = sum(memory_usages) / len(memory_usages) if memory_usages else 0.0
+            avg_inference_memory = sum(inference_memories) / len(inference_memories) if inference_memories else 0.0
             rouge_l_score = round(scores.get("rougeL", 0.0), 4)
+
+            print(f"\n📊 Memory Usage Summary:")
+            print(f"  - Model loading memory: {model_memory:.2f} MB")
+            print(f"  - Average inference memory per sample: {avg_inference_memory:.2f} MB")
+            print(f"  - Total memory (model + avg inference): {model_memory + avg_inference_memory:.2f} MB")
 
             with open(output_file, 'w', encoding='utf-8') as f:
                 json.dump({
                     "model_name": args.model_type,
                     "scores": scores,
                     "rouge_l": rouge_l_score,
-                    "memory_usage_mb": round(avg_memory, 2),
+                    "model_memory_mb": round(model_memory, 2),
+                    "avg_inference_memory_mb": round(avg_inference_memory, 2),
+                    "total_memory_mb": round(model_memory + avg_inference_memory, 2),
                     "summaries": summaries_to_save
                 }, f, indent=2, ensure_ascii=False)
 
@@ -187,7 +241,9 @@ def main(args):
             eval_result = {
                 "model_name": args.model_type,
                 "rouge_l": rouge_l_score,
-                "memory_usage_mb": round(avg_memory, 2)
+                "model_memory_mb": round(model_memory, 2),
+                "avg_inference_memory_mb": round(avg_inference_memory, 2),
+                "total_memory_mb": round(model_memory + avg_inference_memory, 2)
             }
 
             with open(f"evaluation_result_{args.model_type}.json", "w") as f:
