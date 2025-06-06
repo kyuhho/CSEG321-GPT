@@ -92,11 +92,14 @@ def train(args):
     # 데이터셋 로드
     dataset = load_dataset("abisee/cnn_dailymail", "3.0.0")
 
-    # 빠른 테스트를 위한 데이터 샘플링
-    if getattr(args, "debug", False):
-        print("[DEBUG MODE] Using small dataset subset (train=100, val=20)")
-        dataset["train"] = dataset["train"].select(range(100))
-        dataset["validation"] = dataset["validation"].select(range(20))
+    # 사용자 지정 크기만큼 데이터 샘플링
+    if args.train_samples > 0:
+        dataset["train"] = dataset["train"].select(range(min(args.train_samples, len(dataset["train"]))))
+        print(f"Using {len(dataset['train'])} training samples")
+    
+    if args.val_samples > 0:
+        dataset["validation"] = dataset["validation"].select(range(min(args.val_samples, len(dataset["validation"]))))
+        print(f"Using {len(dataset['validation'])} validation samples")
 
     train_dataset = CNNDailyMailDataset(dataset['train'], tokenizer, args.max_length)
     val_dataset = CNNDailyMailDataset(dataset['validation'], tokenizer, args.max_length)
@@ -176,7 +179,8 @@ def get_args():
     parser.add_argument('--max_length', type=int, default=512)
     parser.add_argument('--save_dir', type=str, default='saved_models')
     parser.add_argument('--seed', type=int, default=11711)
-    parser.add_argument('--debug', action='store_true', help="Use a small subset of data for quick testing")
+    parser.add_argument('--train_samples', type=int, default=0, help="Number of training samples to use (0 = use all)")
+    parser.add_argument('--val_samples', type=int, default=0, help="Number of validation samples to use (0 = use all)")
     return parser.parse_args()
 
 def main():
