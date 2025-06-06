@@ -1,7 +1,20 @@
+
+# python summary_generation.py --model_type baseline 로 base line 성능테스트
+# python summary_generation.py --model_type ours 로 경량화 한 모델 성능테스트
+
 import torch
 import torch.nn as nn
 from transformers import GPT2Tokenizer, GPT2LMHeadModel
 from datasets import load_dataset
+from evaluate import load as load_metric
+from transformers import (
+    GPT2Tokenizer,
+    GPT2LMHeadModel
+)
+import psutil
+import os
+
+from config import GPT2Config  # 필요 시 사용
 from tqdm import tqdm
 import evaluate
 import os
@@ -39,11 +52,13 @@ def load_model(model_type):
         return model, tokenizer
 
     elif model_type == "ours":
+
         print("📦 Loading our quantized GPT2 model")
         tokenizer = GPT2Tokenizer.from_pretrained("gavin124/gpt2-finetuned-cnn-summarization-v2")
         if tokenizer.pad_token is None:
             tokenizer.pad_token = tokenizer.eos_token
         model, config = load_quantized_model("saved_models/student_quant.pt")
+
         return model, tokenizer
 
     else:
@@ -119,7 +134,7 @@ def main(args):
         dataset = load_dataset("abisee/cnn_dailymail", "3.0.0")["test"]
         dataset = dataset.select(range(args.num_samples))
 
-        predictions, references, summaries_to_save = [], [], []
+        predictions, references, summaries_to_save , memory_usages = [], [], [], []
         successful_generations = 0
 
         for i, item in enumerate(tqdm(dataset, desc="📝 Generating summaries")):
@@ -127,6 +142,10 @@ def main(args):
             reference = item["highlights"]
             summary = generate_summary(model, tokenizer, article, args.model_type)
             if summary and not summary.startswith("Error:"):
+                process = psutil.Process(os.getpid())
+                mem_used = process.memory_info().rss / (1024 ** 2)  # MB
+                memory_usages.append(mem_used)
+                
                 predictions.append(summary)
                 references.append(reference)
                 summaries_to_save.append({
@@ -151,12 +170,19 @@ def main(args):
                     print(f"{key.upper()} - F1: {scores[key]:.4f}")
 
             output_file = f"summaries_{args.model_type}_{args.num_samples}.json"
+            avg_memory = sum(memory_usages) / len(memory_usages) if memory_usages else 0.0
+            rouge_l_score = round(scores.get("rougeL", 0.0), 4)
+
             with open(output_file, 'w', encoding='utf-8') as f:
                 json.dump({
+                    "model_name": args.model_type,
                     "scores": scores,
+                    "rouge_l": rouge_l_score,
+                    "memory_usage_mb": round(avg_memory, 2),
                     "summaries": summaries_to_save
                 }, f, indent=2, ensure_ascii=False)
-            print(f"\n💾 Results saved to {output_file}")
+
+            print(f"\n💾 All results saved to {output_file}")
         else:
             print("❌ No successful summaries generated!")
 
@@ -164,6 +190,23 @@ def main(args):
         print(f"❌ Main execution error: {e}")
         import traceback
         traceback.print_exc()
+
+
+    # 5. 메모리 사용량 저장
+    avg_memory_usage = sum(memory_usages) / len(memory_usages)
+
+    # 🔽 평가 결과 저장
+    eval_result = {
+        "model_name": args.model_type,
+        "rouge_l": round(rouge_l, 4),
+        "memory_usage_mb": round(avg_memory_usage, 2)
+    }
+
+    with open(f"evaluation_result_{args.model_type}.json", "w") as f:
+        json.dump(eval_result, f, indent=2)
+
+    print(f"\n✅ Evaluation result saved to evaluation_result_{args.model_type}.json")
+    
 
 if __name__ == "__main__":
     import argparse
