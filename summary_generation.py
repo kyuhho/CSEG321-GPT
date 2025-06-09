@@ -167,12 +167,10 @@ def generate_summary(model, tokenizer, article, model_type):
 
 def main(args):
     os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
-    # Set device based on model type
-    if args.model_type == "baseline" and torch.cuda.is_available():
-        device = torch.device("cuda")
-    else:
-        device = torch.device("cpu")
-    print(f"🔧 Using device: {device} (GPU for baseline if available, CPU for quantized)")
+    # ✅ 반드시 CPU 강제 사용
+    device = torch.device("cpu")
+    print(f"\n🚀 Evaluating model: {args.model_type}")
+    print(f"🔧 Using device: {device} (forced CPU for quantized models)\n")
 
     try:
         model, tokenizer, model_memory = load_model(args.model_type)
