@@ -108,6 +108,12 @@ def train(args):
   para_train_data = load_paraphrase_data(args.para_train)
   para_dev_data = load_paraphrase_data(args.para_dev)
 
+  # Limit dataset size if specified
+  if args.dataset_limit > 0:
+    para_train_data = para_train_data[:args.dataset_limit]
+    para_dev_data = para_dev_data[:args.dataset_limit]
+    print(f"Limited dataset sizes - train: {len(para_train_data)}, dev: {len(para_dev_data)}")
+
   para_train_data = ParaphraseDetectionDataset(para_train_data, args)
   para_dev_data = ParaphraseDetectionDataset(para_dev_data, args)
 
@@ -173,6 +179,12 @@ def test(args):
   para_dev_data = load_paraphrase_data(args.para_dev)
   para_test_data = load_paraphrase_data(args.para_test, split='test')
 
+  # Limit dataset size if specified
+  if args.dataset_limit > 0:
+    para_dev_data = para_dev_data[:args.dataset_limit]
+    para_test_data = para_test_data[:args.dataset_limit]
+    print(f"Limited dataset sizes - dev: {len(para_dev_data)}, test: {len(para_test_data)}")
+
   para_dev_data = ParaphraseDetectionDataset(para_dev_data, args)
   para_test_data = ParaphraseDetectionTestDataset(para_test_data, args)
 
@@ -214,6 +226,9 @@ def get_args():
   parser.add_argument("--model_size", type=str,
                       help="The model size as specified on hugging face. DO NOT use the xl model.",
                       choices=['gpt2', 'gpt2-medium', 'gpt2-large'], default='gpt2')
+
+  parser.add_argument("--dataset_limit", type=int, default=0, 
+                      help="Limit the number of samples from each dataset. 0 means use all data.")
 
   args = parser.parse_args()
   return args
